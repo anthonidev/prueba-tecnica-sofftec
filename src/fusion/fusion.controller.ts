@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Query } from '@nestjs/common';
 import { FusionService } from './fusion.service';
+import { FusionDto } from './dto/fusion.dto';
 
 @Controller('fusion')
 export class FusionController {

@@ -1,28 +1,35 @@
 import { Injectable, HttpException, HttpStatus } from '@nestjs/common';
-import { AxiosInstance, default as axios } from 'axios';
 import { DynamoDBService } from '../dynamodb.service';
+import { HttpService } from '@nestjs/axios';
+import { firstValueFrom } from 'rxjs';
+import { randomZipCodePeru } from 'src/lib/zipcode';
 
 @Injectable()
 export class FusionService {
   private swapiUrl = 'https://swapi.dev/api';
-  private weatherApiUrl = 'https://api.weatherapi.com/v1/current.json';
-  private weatherApiKey = 'ed5db9fed266406186c40502242111'; // Obtén una API key de WeatherAPI
+  private weatherApiUrl = 'http://api.weatherapi.com/v1/current.json';
+  private weatherApiKey = process.env.WEATHER_API_KEY;
 
-  constructor(private dynamoDBService: DynamoDBService) {}
+  constructor(
+    private dynamoDBService: DynamoDBService,
+    private httpService: HttpService,
+  ) {}
 
   async getFusionData() {
-    const characters = await this.fetchStarWarsCharacters();
-    const weatherData = await this.fetchWeather('Tatooine'); // Ejemplo con Tatooine
+    const planet = await this.fetchStarWarsData();
 
-    // Fusionar los datos
-    const fusionData = characters.map((character) => ({
-      name: character.name,
-      homeworld: character.homeworld,
-      current_weather: weatherData,
-    }));
+    const weatherData = await this.fetchWeather();
 
-    // Guardar en DynamoDB
-    await this.dynamoDBService.saveData('FusionData', {
+    const fusionData = {
+      name: planet.name,
+      terrain: planet.terrain,
+      climate: planet.climate,
+      region: weatherData.location.region,
+      is_day: weatherData.current.is_day,
+      condition: weatherData.current.condition.text,
+    };
+
+    await this.dynamoDBService.saveData('api-nest-rimac', {
       id: { S: new Date().toISOString() },
       data: { S: JSON.stringify(fusionData) },
     });
@@ -30,10 +37,14 @@ export class FusionService {
     return fusionData;
   }
 
-  private async fetchStarWarsCharacters() {
+  private async fetchStarWarsData() {
     try {
-      const response = await axios.get(`${this.swapiUrl}/people`);
-      return response.data.results;
+      const planetRandom = Math.floor(Math.random() * 60) + 1;
+
+      const response = await firstValueFrom(
+        this.httpService.get(`${this.swapiUrl}/planets/${planetRandom}/`),
+      );
+      return response.data as IPlanet;
     } catch (error) {
       throw new HttpException(
         'Error fetching Star Wars data',
@@ -42,12 +53,15 @@ export class FusionService {
     }
   }
 
-  private async fetchWeather(location: string) {
+  private async fetchWeather() {
+    const zip_code = randomZipCodePeru();
     try {
-      const response = await axios.get(`${this.weatherApiUrl}`, {
-        params: { key: this.weatherApiKey, q: location },
-      });
-      return response.data;
+      const response = await firstValueFrom(
+        this.httpService.get(
+          `${this.weatherApiUrl}?key=${this.weatherApiKey}&q=${zip_code}`,
+        ),
+      );
+      return response.data as IWeather;
     } catch (error) {
       throw new HttpException(
         'Error fetching weather data',
